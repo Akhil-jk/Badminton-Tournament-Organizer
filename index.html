@@ -186,7 +186,8 @@
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, doc, getDoc, addDoc, setDoc, updateDoc, deleteDoc, onSnapshot, collection, query, where, addDoc, getDocs } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        // Corrected import: Removed duplicate 'addDoc'
+        import { getFirestore, doc, getDoc, addDoc, setDoc, updateDoc, deleteDoc, onSnapshot, collection, query, where, getDocs } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
         // Firebase configuration and app ID (provided by Canvas environment)
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-badminton-app';
@@ -204,15 +205,19 @@
 
         // --- Firebase Initialization and Authentication ---
         const initializeFirebase = async () => {
+            console.log("Initializing Firebase...");
             try {
                 app = initializeApp(firebaseConfig);
                 db = getFirestore(app);
                 auth = getAuth(app);
+                console.log("Firebase app, db, auth initialized.");
 
                 // Sign in with custom token if available, otherwise anonymously
                 if (initialAuthToken) {
+                    console.log("Attempting signInWithCustomToken...");
                     await signInWithCustomToken(auth, initialAuthToken);
                 } else {
+                    console.log("Attempting signInAnonymously...");
                     await signInAnonymously(auth);
                 }
 
@@ -225,17 +230,19 @@
                         console.log("Firebase Auth Ready. User ID:", userId);
                         // Start listening to Firestore data only after auth is ready
                         setupFirestoreListeners();
+                        addInitialPlayers(); // Attempt to add initial players after auth is ready
                     } else {
-                        console.log("No user signed in.");
+                        console.log("No user signed in. Using anonymous ID.");
                         userId = crypto.randomUUID(); // Fallback for unauthenticated
                         document.getElementById('userIdDisplay').textContent = userId;
                         isAuthReady = true; // Still consider ready to use anonymous ID
                         setupFirestoreListeners();
+                        addInitialPlayers(); // Attempt to add initial players after auth is ready
                     }
                 });
             } catch (error) {
                 console.error("Error initializing Firebase:", error);
-                showModal("Error", "Failed to initialize the app. Please try again later.", false);
+                showModal("Error", "Failed to initialize the app. Please try again later. Check console for details.", false);
             }
         };
 
@@ -245,12 +252,14 @@
                 console.warn("Firestore listeners not set up: Auth not ready or DB/User ID missing.");
                 return;
             }
+            console.log("Setting up Firestore listeners for players...");
 
             // Public collection for players
             const playersCollectionRef = collection(db, `artifacts/${appId}/public/data/players`);
 
             // Listen for real-time updates to players
             onSnapshot(playersCollectionRef, (snapshot) => {
+                console.log("Firestore players snapshot received.");
                 players = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
                 players.sort((a, b) => a.name.localeCompare(b.name)); // Sort alphabetically
                 renderPlayers();
@@ -258,7 +267,7 @@
                 renderScoreInputCheckboxes();
             }, (error) => {
                 console.error("Error fetching players:", error);
-                showModal("Error", "Failed to load player data. Please check your connection.", false);
+                showModal("Error", "Failed to load player data. Please check your connection and console for details.", false);
             });
         };
 
@@ -412,6 +421,7 @@
             document.getElementById('modalTitle').textContent = title;
             document.getElementById('modalMessage').innerHTML = message; // Use innerHTML for dynamic content
             document.getElementById('modalCancelBtn').style.display = showCancel ? 'inline-block' : 'none';
+            document.getElementById('modalConfirmBtn').style.display = 'inline-block'; // Ensure confirm is visible for general use
             modal.classList.remove('hidden');
 
             return new Promise(resolve => {
@@ -445,8 +455,14 @@
                 showModal("Duplicate Player", `Player "${name}" already exists.`, false);
                 return;
             }
+            if (!isAuthReady || !db) {
+                showModal("App Not Ready", "The application is still initializing. Please wait a moment and try again.", false);
+                console.error("Firebase not ready for addPlayer operation.");
+                return;
+            }
 
             try {
+                console.log(`Attempting to add player: ${name} to artifacts/${appId}/public/data/players`);
                 const playersCollectionRef = collection(db, `artifacts/${appId}/public/data/players`);
                 await addDoc(playersCollectionRef, {
                     name: name,
@@ -455,9 +471,10 @@
                 });
                 playerNameInput.value = '';
                 showModal("Success", `Player "${name}" added!`, false);
+                console.log(`Player "${name}" added successfully.`);
             } catch (e) {
                 console.error("Error adding player: ", e);
-                showModal("Error", "Failed to add player. Please try again.", false);
+                showModal("Error", `Failed to add player: ${e.message}. Check console for details.`, false);
             }
         };
 
@@ -469,13 +486,20 @@
         };
 
         const removePlayer = async (playerId) => {
+            if (!isAuthReady || !db) {
+                showModal("App Not Ready", "The application is still initializing. Please wait a moment and try again.", false);
+                console.error("Firebase not ready for removePlayer operation.");
+                return;
+            }
             try {
+                console.log(`Attempting to remove player with ID: ${playerId}`);
                 const playerDocRef = doc(db, `artifacts/${appId}/public/data/players`, playerId);
                 await deleteDoc(playerDocRef);
                 showModal("Success", "Player removed successfully!", false);
+                console.log(`Player with ID ${playerId} removed successfully.`);
             } catch (e) {
                 console.error("Error removing player: ", e);
-                showModal("Error", "Failed to remove player. Please try again.", false);
+                showModal("Error", `Failed to remove player: ${e.message}. Check console for details.`, false);
             }
         };
 
@@ -487,8 +511,14 @@
                 showModal("No Players Selected", "Please select at least one player to record points.", false);
                 return;
             }
+            if (!isAuthReady || !db) {
+                showModal("App Not Ready", "The application is still initializing. Please wait a moment and try again.", false);
+                console.error("Firebase not ready for recordPoints operation.");
+                return;
+            }
 
             try {
+                console.log(`Attempting to record points for ${selectedPlayerIds.length} players.`);
                 for (const playerId of selectedPlayerIds) {
                     const playerRef = doc(db, `artifacts/${appId}/public/data/players`, playerId);
                     const currentPlayer = players.find(p => p.id === playerId);
@@ -496,6 +526,7 @@
                         await updateDoc(playerRef, {
                             points: currentPlayer.points + 1
                         });
+                        console.log(`Updated points for player ${currentPlayer.name}`);
                     }
                 }
                 showModal("Points Recorded", `Points added for ${selectedPlayerIds.length} player(s)!`, false);
@@ -503,7 +534,7 @@
                 document.querySelectorAll('#scoreInputContainer input[type="checkbox"]:checked').forEach(cb => cb.checked = false);
             } catch (e) {
                 console.error("Error recording points: ", e);
-                showModal("Error", "Failed to record points. Please try again.", false);
+                showModal("Error", `Failed to record points: ${e.message}. Check console for details.`, false);
             }
         };
 
@@ -515,7 +546,13 @@
         };
 
         const resetMonthlyScores = async () => {
+            if (!isAuthReady || !db) {
+                showModal("App Not Ready", "The application is still initializing. Please wait a moment and try again.", false);
+                console.error("Firebase not ready for resetMonthlyScores operation.");
+                return;
+            }
             try {
+                console.log("Attempting to reset all monthly scores.");
                 const playersCollectionRef = collection(db, `artifacts/${appId}/public/data/players`);
                 const snapshot = await getDocs(playersCollectionRef); // Get current state to iterate
                 for (const docSnapshot of snapshot.docs) {
@@ -523,9 +560,10 @@
                     await updateDoc(playerRef, { points: 0 });
                 }
                 showModal("Scores Reset", "All monthly scores have been reset to 0.", false);
+                console.log("All monthly scores reset successfully.");
             } catch (e) {
                 console.error("Error resetting scores: ", e);
-                showModal("Error", "Failed to reset scores. Please try again.", false);
+                showModal("Error", `Failed to reset scores: ${e.message}. Check console for details.`, false);
             }
         };
 
@@ -622,6 +660,7 @@
                 document.getElementById('modalTitle').textContent = "Select Winner";
                 document.getElementById('modalMessage').innerHTML = winnerSelectionHtml;
                 document.getElementById('modalCancelBtn').style.display = 'none'; // No cancel for winner selection
+                document.getElementById('modalConfirmBtn').style.display = 'none'; // Hide default confirm button
 
                 const winnerTeam1Btn = document.getElementById('winnerTeam1Btn');
                 const winnerTeam2Btn = document.getElementById('winnerTeam2Btn');
@@ -699,6 +738,10 @@
         // Initial players for demo if no data in Firebase
         // This will only run if the Firestore collection is empty initially
         const addInitialPlayers = async () => {
+            if (!isAuthReady || !db) {
+                console.warn("Firebase not ready for initial player check.");
+                return;
+            }
             const initialPlayerNames = [
                 "Abilash Racketlon", "Ajay Nani...", "Akhil", "Anagha Racketlon",
                 "Ankur Singh", "Arun Bro Racketlon", "Arunjo", "Bharat Racketlon",
@@ -708,26 +751,27 @@
                 "Sharath Racketlon"
             ];
 
-            const playersCollectionRef = collection(db, `artifacts/${appId}/public/data/players`);
-            const snapshot = await getDocs(playersCollectionRef);
-            if (snapshot.empty) { // Only add if collection is empty
-                for (const name of initialPlayerNames) {
-                    await addDoc(playersCollectionRef, {
-                        name: name,
-                        points: 0,
-                        createdAt: new Date()
-                    });
+            try {
+                const playersCollectionRef = collection(db, `artifacts/${appId}/public/data/players`);
+                const snapshot = await getDocs(playersCollectionRef);
+                if (snapshot.empty) { // Only add if collection is empty
+                    console.log("Firestore players collection is empty. Adding initial players...");
+                    for (const name of initialPlayerNames) {
+                        await addDoc(playersCollectionRef, {
+                            name: name,
+                            points: 0,
+                            createdAt: new Date()
+                        });
+                    }
+                    console.log("Initial players added to Firestore.");
+                } else {
+                    console.log("Firestore players collection is not empty. Skipping initial player addition.");
                 }
-                console.log("Initial players added to Firestore.");
+            } catch (e) {
+                console.error("Error adding initial players:", e);
+                // Don't show modal for initial player addition as it might be a transient error
             }
         };
-
-        // Call initial player addition after Firebase is ready and auth is complete
-        onAuthStateChanged(auth, (user) => {
-            if (user && isAuthReady) {
-                addInitialPlayers();
-            }
-        });
 
     </script>
 </body>
